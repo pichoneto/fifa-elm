@@ -8,6 +8,8 @@ import Browser
 import Html exposing (..)
 import Html.Attributes exposing (src)
 import Html.Events exposing (onClick)
+import Http
+import Json.Decode exposing (..)
 
 
 
@@ -23,13 +25,13 @@ type alias Player =
 type alias Team =
     { player1 : String
     , player2 : String
+    , visitor : Bool
     }
 
 
-type alias Result =
+type alias MatchResult =
     { teams : List Team
     , result : String
-    , visitor : Bool
     }
 
 
@@ -37,7 +39,7 @@ type alias Match =
     { time : Maybe String
     , division : String
     , players : List Player
-    , details : Maybe (List Result)
+    , details : Maybe (List MatchResult)
     , id : Int
     }
 
@@ -70,9 +72,16 @@ type alias Division =
     }
 
 
+type FetchStatus
+    = Failure
+    | Loading
+    | Success String
+
+
 type alias Model =
     { divisions : List Division
     , tabState : Tab.State
+    , fetchStatus : FetchStatus
     }
 
 
@@ -83,9 +92,91 @@ init =
             , Division "Division 2" [] []
             ]
       , tabState = Tab.initialState
+      , fetchStatus = Loading
       }
-    , Cmd.none
+    , getLeaderboard
     )
+
+
+
+---- HTTP ----
+
+
+playerDecoder : Decoder Player
+playerDecoder =
+    map2 Player
+        (field "name" string)
+        (field "victories" int)
+
+
+teamDecoder : Decoder Team
+teamDecoder =
+    map3 Team
+        (field "player1" string)
+        (field "player2" string)
+        (field "visitor" bool)
+
+
+matchResultDecoder : Decoder MatchResult
+matchResultDecoder =
+    map2 MatchResult
+        (field "teams" (list teamDecoder))
+        (field "result" string)
+
+
+matchDecoder : Decoder Match
+matchDecoder =
+    map5 Match
+        (field "time" (nullable string))
+        (field "division" string)
+        (field "players" (list playerDecoder))
+        (field "details" (nullable (list matchResultDecoder)))
+        (field "id" int)
+
+
+rivalStatsDecoder : Decoder RivalStats
+rivalStatsDecoder =
+    map3 RivalStats
+        (field "points" int)
+        (field "victories" int)
+        (field "defeats" int)
+
+
+rivalDecoder : Decoder Rival
+rivalDecoder =
+    map2 Rival
+        (field "name" string)
+        (field "stats" (nullable rivalStatsDecoder))
+
+
+participantDecoder : Decoder Participant
+participantDecoder =
+    map4 Participant
+        (field "name" string)
+        (field "position" int)
+        (field "points" int)
+        (field "details" (list rivalDecoder))
+
+
+divisionDecoder : Decoder Division
+divisionDecoder =
+    map3 Division
+        (field "name" string)
+        (field "participants" (list participantDecoder))
+        (field "matches" (list matchDecoder))
+
+
+leaderboardDecoder : Decoder (List Division)
+leaderboardDecoder =
+    list divisionDecoder
+
+
+getLeaderboard : Cmd Msg
+getLeaderboard =
+    Http.get
+        { url = "http://www.json-generator.com/api/json/get/coNZmhVhOW?indent=2"
+        , expect = Http.expectJson GotLeaderboard leaderboardDecoder
+        }
 
 
 
@@ -94,6 +185,7 @@ init =
 
 type Msg
     = TabMsg Tab.State
+    | GotLeaderboard (Result Http.Error (List Division))
 
 
 update : Msg -> Model -> ( Model, Cmd msg )
@@ -103,6 +195,18 @@ update msg model =
             ( { model | tabState = state }
             , Cmd.none
             )
+
+        GotLeaderboard result ->
+            case result of
+                Ok text ->
+                    ( { model | divisions = text }
+                    , Cmd.none
+                    )
+
+                Err _ ->
+                    ( { model | fetchStatus = Failure }
+                    , Cmd.none
+                    )
 
 
 
@@ -121,7 +225,7 @@ generateSummaryTab divisions =
         }
 
 
-generateDivisionTab {name} =
+generateDivisionTab { name } =
     Tab.item
         { id = name
         , link = Tab.link [] [ text name ]
