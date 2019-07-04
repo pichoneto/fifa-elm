@@ -40,7 +40,7 @@ type alias MatchResult =
 type alias Match =
     { details : Maybe (List MatchResult)
     , division : String
-    , id : Int
+    , id : String
     , players : List Player
     , time : Maybe String
     }
@@ -131,7 +131,7 @@ matchDecoder =
     map5 Match
         (list matchResultDecoder |> maybe |> field "details")
         (field "division" string)
-        (field "id" int)
+        (field "id" string)
         (list playerDecoder |> field "players")
         (field "time" (nullable string))
 
