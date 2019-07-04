@@ -12,6 +12,7 @@ import Html.Attributes exposing (src)
 import Html.Events exposing (onClick)
 import Http
 import Json.Decode exposing (..)
+import Loading as Loader exposing( LoaderType(..), defaultConfig, render)
 
 
 
@@ -77,7 +78,7 @@ type alias Division =
 type FetchStatus
     = Failure
     | Loading
-    | Success String
+    | Success
 
 
 type alias Model =
@@ -189,7 +190,6 @@ type Msg
     = TabMsg Tab.State
     | GotLeaderboard (Result Http.Error (List Division))
 
-
 update : Msg -> Model -> ( Model, Cmd msg )
 update msg model =
     case msg of
@@ -197,11 +197,10 @@ update msg model =
             ( { model | tabState = state }
             , Cmd.none
             )
-
         GotLeaderboard result ->
             case result of
                 Ok text ->
-                    ( { model | divisions = text }
+                    ( { model | divisions = text, fetchStatus = Success }
                     , Cmd.none
                     )
 
@@ -229,12 +228,28 @@ generateSummaryTab divisions =
 
 generateLeaderboardRow { name, position, points, details } =
     Table.tr []
-        [ Table.td [] [ text (String.fromInt position) ]
+        [ Table.td [] [ String.fromInt position |> text ]
         , Table.td [] [ text name ]
-        , Table.td [] [ text (String.fromInt points) ]
-        , Table.td [] [ text (String.fromInt points) ]
-        , Table.td [] [ text (String.fromInt points) ]
-        , Table.td [] [ text (String.fromInt points) ]
+        , Table.td [] [ String.fromInt points |> text ]
+        , Table.td [] [ List.length details
+            |> String.fromInt
+            |> text
+        ]
+        , Table.td [] [
+            List.foldr
+                (\detail total ->
+                    case detail.stats of
+                        Nothing ->
+                            total
+                        Just stats ->
+                            stats.victories + stats.defeats + total
+                )
+                0
+                details
+            |> String.fromInt
+            |> text
+        ]
+        , Table.td [] [ String.fromInt points |> text ]
         ]
 
 
@@ -254,6 +269,66 @@ generateLeaderboardTable participants =
             Table.tbody [] (List.map generateLeaderboardRow participants)
         }
 
+generatePendingMatchesTable matches = div [][]
+
+generatePlayedMatchesRow {time, players} =
+    Table.tr [] (
+        Table.td [] [ text time ]
+        ::
+        List.concatMap
+            (\{name, victories} ->
+                [
+                Table.td [] [ text name ]
+                , Table.td [] [ String.fromInt victories |> text ]
+                ]
+            )
+            players
+        ++ [Table.td [] []]
+    )
+
+
+
+generatePlayedMatchesTable matches =
+    Table.table
+        { options = [ Table.striped, Table.hover ]
+        , thead =
+            Table.simpleThead
+                [ Table.th [] [ text "Time" ]
+                , Table.th [] [ text "Player 1" ]
+                , Table.th [] []
+                , Table.th [] [ text "Player 2" ]
+                , Table.th [] []
+                , Table.th [] [ text "Player 3" ]
+                , Table.th [] []
+                , Table.th [] [ text "Player 4" ]
+                , Table.th [] []
+                , Table.th [] [ text "Details" ]
+                ]
+        , tbody =
+            Table.tbody [] (
+                List.map
+                    generatePlayedMatchesRow
+                    (List.map
+                        (\match ->
+                            case match.time of
+                                Just (time as timeValue) ->
+                                    {match | time = timeValue}
+                        )
+                        (List.filter
+                            (\match ->
+                                case match.time of
+                                    Nothing ->
+                                        False
+                                    Just time ->
+                                        True
+                            )
+                            matches
+                        )
+                    )
+            )
+        }
+
+
 
 generateDivisionTab division =
     Tab.item
@@ -262,6 +337,9 @@ generateDivisionTab division =
         , pane =
             Tab.pane [ Spacing.mt3 ]
                 [ generateLeaderboardTable division.participants
+                , generatePendingMatchesTable division.matches
+                , h2 [] [text "Matches already played"]
+                , generatePlayedMatchesTable division.matches
                 ]
         }
 
@@ -271,7 +349,10 @@ generateTabItems divisions =
 
 
 createTabs state =
-    Tab.config TabMsg |> generateTabItems state.divisions |> Tab.view state.tabState
+    if state.fetchStatus == Loading then
+        Loader.render Bars defaultConfig Loader.On
+    else
+        Tab.config TabMsg |> generateTabItems state.divisions |> Tab.view state.tabState
 
 
 view : Model -> Html Msg
@@ -280,7 +361,6 @@ view model =
         [ CDN.stylesheet
         , createTabs model
         ]
-
 
 
 ---- PROGRAM ----
