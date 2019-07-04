@@ -3,8 +3,10 @@ module Main exposing (Model, Msg(..), init, main, update, view)
 import Bootstrap.CDN as CDN
 import Bootstrap.Grid as Grid
 import Bootstrap.Tab as Tab
+import Bootstrap.Table as Table
 import Bootstrap.Utilities.Spacing as Spacing
 import Browser
+import Debug
 import Html exposing (..)
 import Html.Attributes exposing (src)
 import Html.Events exposing (onClick)
@@ -30,24 +32,24 @@ type alias Team =
 
 
 type alias MatchResult =
-    { teams : List Team
-    , result : String
+    { result : String
+    , teams : List Team
     }
 
 
 type alias Match =
-    { time : Maybe String
+    { details : Maybe (List MatchResult)
     , division : String
-    , players : List Player
-    , details : Maybe (List MatchResult)
     , id : Int
+    , players : List Player
+    , time : Maybe String
     }
 
 
 type alias RivalStats =
-    { points : Int
+    { defeats : Int
+    , points : Int
     , victories : Int
-    , defeats : Int
     }
 
 
@@ -58,17 +60,17 @@ type alias Rival =
 
 
 type alias Participant =
-    { name : String
-    , position : Int
+    { details : List Rival
+    , name : String
     , points : Int
-    , details : List Rival
+    , position : Int
     }
 
 
 type alias Division =
-    { name : String
+    { matches : List Match
+    , name : String
     , participants : List Participant
-    , matches : List Match
     }
 
 
@@ -88,8 +90,8 @@ type alias Model =
 init : ( Model, Cmd Msg )
 init =
     ( { divisions =
-            [ Division "Division 1" [] []
-            , Division "Division 2" [] []
+            [ Division [] "Division 1" []
+            , Division [] "Division 2" []
             ]
       , tabState = Tab.initialState
       , fetchStatus = Loading
@@ -120,18 +122,18 @@ teamDecoder =
 matchResultDecoder : Decoder MatchResult
 matchResultDecoder =
     map2 MatchResult
-        (field "teams" (list teamDecoder))
         (field "result" string)
+        (list teamDecoder |> field "teams")
 
 
 matchDecoder : Decoder Match
 matchDecoder =
     map5 Match
-        (field "time" (nullable string))
+        (list matchResultDecoder |> maybe |> field "details")
         (field "division" string)
-        (field "players" (list playerDecoder))
-        (field "details" (nullable (list matchResultDecoder)))
         (field "id" int)
+        (list playerDecoder |> field "players")
+        (field "time" (nullable string))
 
 
 rivalStatsDecoder : Decoder RivalStats
@@ -146,24 +148,24 @@ rivalDecoder : Decoder Rival
 rivalDecoder =
     map2 Rival
         (field "name" string)
-        (field "stats" (nullable rivalStatsDecoder))
+        (maybe rivalStatsDecoder |> field "stats")
 
 
 participantDecoder : Decoder Participant
 participantDecoder =
     map4 Participant
+        (list rivalDecoder |> field "details")
         (field "name" string)
-        (field "position" int)
         (field "points" int)
-        (field "details" (list rivalDecoder))
+        (field "position" int)
 
 
 divisionDecoder : Decoder Division
 divisionDecoder =
     map3 Division
+        (list matchDecoder |> field "matches")
         (field "name" string)
-        (field "participants" (list participantDecoder))
-        (field "matches" (list matchDecoder))
+        (list participantDecoder |> field "participants")
 
 
 leaderboardDecoder : Decoder (List Division)
@@ -225,14 +227,41 @@ generateSummaryTab divisions =
         }
 
 
-generateDivisionTab { name } =
+generateLeaderboardRow { name, position, points, details } =
+    Table.tr []
+        [ Table.td [] [ text (String.fromInt position) ]
+        , Table.td [] [ text name ]
+        , Table.td [] [ text (String.fromInt points) ]
+        , Table.td [] [ text (String.fromInt points) ]
+        , Table.td [] [ text (String.fromInt points) ]
+        , Table.td [] [ text (String.fromInt points) ]
+        ]
+
+
+generateLeaderboardTable participants =
+    Table.table
+        { options = [ Table.striped, Table.hover ]
+        , thead =
+            Table.simpleThead
+                [ Table.th [] [ text "Pos" ]
+                , Table.th [] [ text "Player" ]
+                , Table.th [] [ text "Points" ]
+                , Table.th [] [ text "# Rivals" ]
+                , Table.th [] [ text "# Matches" ]
+                , Table.th [] [ text "Details" ]
+                ]
+        , tbody =
+            Table.tbody [] (List.map generateLeaderboardRow participants)
+        }
+
+
+generateDivisionTab division =
     Tab.item
-        { id = name
-        , link = Tab.link [] [ text name ]
+        { id = division.name
+        , link = Tab.link [] [ text division.name ]
         , pane =
             Tab.pane [ Spacing.mt3 ]
-                [ h4 [] [ text "Tab 2 Heading" ]
-                , p [] [ text "This is something completely different." ]
+                [ generateLeaderboardTable division.participants
                 ]
         }
 
